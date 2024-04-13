@@ -143,7 +143,7 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+  return ~(~ (x & ~y) & ~ (~x & y));
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -152,9 +152,7 @@ int bitXor(int x, int y) {
  *   Rating: 1
  */
 int tmin(void) {
-
-  return 2;
-
+  return 1<<31;
 }
 //2
 /*
@@ -165,7 +163,7 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  return !(~(x + (!(x+1) ^ (x+1))));
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -176,7 +174,8 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  // abcd & 1010 == 1010 only if all oddbits are 1, then abcd & 0xAA ~ 0xAA +1 =0 if allOddBits
+  return !(((x & (x >> 8) & (x >> 16) & (x >> 24)) & 0xAA) + ~0xAA + 1);
 }
 /* 
  * negate - return -x 
@@ -186,7 +185,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x+1;
 }
 //3
 /* 
@@ -199,7 +198,9 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  // (x + ~y + 1)>>31 = -1 if x<y;  0 if x>=y
+  // !((x+~y+1)>>31) means x>=y
+  return !((x + ~0x30 + 1)>>31) & !((~x +0x39 + 1)>>31);
 }
 /* 
  * conditional - same as x ? y : z 
@@ -209,7 +210,9 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+// x=0 y + x!=0 z
+ int zeroMask = !x + ~1 + 1; // x!=0 ,0xFFFFFFFF; x=0, 0x00000000
+ return (zeroMask&y) + (~zeroMask&z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -219,7 +222,12 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  // need to consider TMin and TMax
+  int sign_x = x>>31 & 1;
+  int sign_y = y>>31 & 1;
+  int sign_diff = sign_x ^ sign_y;
+  // if x and y have different sign, return x<0
+  return (sign_diff & sign_x) | ((!sign_diff) & !((y + ~x + 1)>>31));
 }
 //4
 /* 
@@ -231,7 +239,8 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  // x<0 or -x<0
+  return (x>>31 | (~x+1)>>31)+1; 
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -246,7 +255,21 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  int tmp = x ^ (x>>31); // x if x>=0, ~x if x<0
+  int isZero = !tmp;
+  int bit_16,bit_8,bit_4,bit_2,bit_1,bit_num, mask;
+  bit_16 = !(!(tmp>>16))<<4; // 16 if any bit on the most significant 16 bits
+  tmp = tmp>>bit_16;
+  bit_8 = !(!(tmp>>8))<<3;
+  tmp = tmp>>bit_8;
+  bit_4 = !(!(tmp>>4))<<2;
+  tmp = tmp>>bit_4;
+  bit_2 = !(!(tmp>>2))<<1;
+  tmp = tmp>>bit_2;
+  bit_1 = !(!(tmp>>1));
+  bit_num = bit_16 + bit_8 + bit_4 + bit_2 + bit_1+2;
+  mask = isZero + ~0;
+  return isZero | (mask & bit_num);
 }
 //float
 /* 
@@ -261,7 +284,12 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  int exp = (uf >> 23) & 0xFF;
+  int frac = uf & 0x007FFFFF;
+  int sign = uf & 0x80000000;
+  if(exp == 0xFF) return uf; // NaN or infinity
+  if(exp == 0) return sign | (frac << 1); // denormalized
+  return sign | ((exp + 1) << 23) | frac; // normalized
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -276,7 +304,24 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  int exp = (uf >> 23) & 0xFF;
+  int frac = uf & 0x007FFFFF;
+  int sign = uf & 0x80000000;
+  int E = exp - 127;
+  if (exp == 0xFF || E > 31) return 0x80000000u;
+  // denormalized
+  if (exp == 0) return 0;
+  // normalized
+  if (E < 0) return 0;
+  frac = frac | 0x00800000;
+  if (E > 23){
+    frac = frac << (E -23);
+  }
+  else{
+    frac = frac >> (23 -E);
+  }
+  if (sign) return ~frac+1;
+  return frac;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -292,5 +337,11 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  int exp = 0, frac = 0;
+  if (x > 128) return 0x7F800000;
+  if (x < -126 - 23) return 0;
+  if (x < -126) frac = 1 << (23 + x + 126);
+  else exp = x + 127;
+  return (exp << 23) + frac;
+
 }
